@@ -35,7 +35,7 @@ import {STATE} from './shared/params';
 import {setupStats} from './shared/stats_panel';
 import {setBackendAndEnvFlags} from './shared/util';
 
-let segmenter, camera, stats;
+let segmenter, camera, stats, detector;
 let cameras;
 let fpsDisplayMode = 'model';
 const resetTime = {
@@ -84,6 +84,7 @@ async function createSegmenter() {
     }
     case bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation: {
       const runtime = STATE.backend.split('-')[0];
+      detector = await poseDetection.createDetector('MoveNet', {modelType: 'SinglePose.Lightning'});
       if (runtime === 'mediapipe') {
         return bodySegmentation.createSegmenter(STATE.model, {
           runtime,
@@ -168,6 +169,7 @@ async function renderResult() {
   }
 
   let segmentation = null;
+  let poses = null;
 
   // Segmenter can be null if initialization failed (for example when loading
   // from a URL that does not exist).
@@ -207,6 +209,8 @@ async function renderResult() {
         segmentation = segmentation.map(
             singleSegmentation => singleSegmentation.segmentation);
       }
+      poses = await detector.estimatePoses(
+        camera.video, {maxPoses: 5, flipHorizontal: false});
     } catch (error) {
       segmenter.dispose();
       segmenter = null;
