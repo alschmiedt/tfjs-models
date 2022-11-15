@@ -18,6 +18,7 @@
 import '@tensorflow/tfjs-backend-webgl';
 import '@tensorflow/tfjs-backend-webgpu';
 import * as mpPose from '@mediapipe/pose';
+import * as bodypix from '@tensorflow-models/body-pix';
 
 import * as tfjsWasm from '@tensorflow/tfjs-backend-wasm';
 
@@ -33,10 +34,26 @@ import {STATE} from './params';
 import {setupStats} from './stats_panel';
 import {setBackendAndEnvFlags} from './util';
 
-let detector, camera, stats;
+let detector, camera, stats, net;
 let startInferenceTime, numInferences = 0;
 let inferenceTimeSum = 0, lastPanelUpdate = 0;
 let rafId;
+
+const MODEL_CONFIG = {
+  architecture: 'MobileNetV1',
+  outputStride: 16,  // 8, 16 lower = more accurate, larger = faster
+  multiplier: 0.5,   // 1.0, 0.75, 0.5 lower = faster, larger = more accurate
+  quantBytes: 2,     // 1, 2, 4 - lower = faster, larger = more accurate
+};
+
+const SEGMENTATION_CONFIG = {
+  internalResolution: 'medium',
+  maxDetections: 5,  // default was 5
+  nmsRadius: 20,
+  refineSteps: 10,
+  scoreThreshold: 0.3,
+  segmentationThreshold: 0.7,
+};
 
 async function createDetector() {
   switch (STATE.model) {
@@ -77,6 +94,7 @@ async function createDetector() {
       if (STATE.modelConfig.type === 'multipose') {
         modelConfig.enableTracking = STATE.modelConfig.enableTracking;
       }
+      net = await bodypix.load(MODEL_CONFIG);
       return posedetection.createDetector(STATE.model, modelConfig);
   }
 }
@@ -144,6 +162,7 @@ async function renderResult() {
   }
 
   let poses = null;
+  let bodies = null;
 
   // Detector can be null if initialization failed (for example when loading
   // from a URL that does not exist).
@@ -157,6 +176,8 @@ async function renderResult() {
       poses = await detector.estimatePoses(
           camera.video,
           {maxPoses: STATE.modelConfig.maxPoses, flipHorizontal: false});
+      bodies =
+          await net.segmentMultiPersonParts(camera.video, SEGMENTATION_CONFIG);
     } catch (error) {
       detector.dispose();
       detector = null;
